@@ -1,1 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pickleball Pro Scorekeeper</title>
+    <style>
+        :root {
+            --bg-color: #000000;
+            --primary: #00e676; 
+            --secondary: #ff5252;
+            --text-color: #ffffff;
+        }
 
+        body {
+            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .score-section {
+            flex: 6;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(180deg, #1a1a1a 0%, #000000 100%);
+            border-bottom: 1px solid #333;
+        }
+
+        .serving-label {
+            font-size: 1.8rem;
+            color: var(--primary);
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .main-score {
+            font-size: 15rem;
+            font-weight: 900;
+            line-height: 0.9;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .server-indicator {
+            font-size: 1.2rem;
+            color: #666;
+            margin-top: 20px;
+        }
+
+        .controls-section {
+            flex: 4;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            gap: 12px;
+            background-color: #000;
+        }
+
+        .action-btns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            height: 120px;
+        }
+
+        button {
+            border: none;
+            border-radius: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        button:active { opacity: 0.6; transform: scale(0.98); }
+
+        .btn-point { background-color: var(--primary); color: #000; font-size: 2rem; }
+        .btn-fault { background-color: var(--secondary); color: #fff; font-size: 2rem; }
+
+        .utility-btns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn-util {
+            padding: 15px;
+            background: #2c2c2c;
+            color: #aaa;
+            font-size: 1.1rem;
+        }
+
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        #wake-lock-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            font-size: 0.7rem;
+            color: #444;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="wake-lock-status">屏幕常亮：關閉</div>
+
+    <div class="score-section">
+        <div class="serving-label" id="team-label">Team A 發球</div>
+        <div class="main-score" id="display-score">0-0-2</div>
+        <div class="server-indicator">發球方 - 接球方 - 號碼</div>
+    </div>
+
+    <div class="controls-section">
+        <div class="action-btns">
+            <button class="btn-point" onclick="handleAction('point')">得分</button>
+            <button class="btn-fault" onclick="handleAction('fault')">失分</button>
+        </div>
+        <div class="utility-btns">
+            <button class="btn-util" onclick="undo()">復原 (Undo)</button>
+            <button class="btn-util" onclick="resetGame()">重置 (Reset)</button>
+        </div>
+    </div>
+
+    <div class="overlay" id="win-overlay">
+        <h1 id="win-message" style="font-size: 3.5rem; color: var(--primary);">A 隊獲勝！</h1>
+        <button class="btn-util" style="width: 220px; background: var(--primary); color: #000;" onclick="resetGame()">開始新比賽</button>
+    </div>
+
+    <script>
+        let state = {
+            scoreA: 0,
+            scoreB: 0,
+            serverNum: 2,
+            servingTeam: 'A',
+            isGameOver: false
+        };
+
+        let history = [];
+        let wakeLock = null;
+
+        function speak(text) {
+            if (!window.speechSynthesis) return;
+            window.speechSynthesis.cancel();
+            
+            // 將數字轉為逗號分隔，增加播報間隔
+            const formattedText = text.toString().split('').join(', ');
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.lang = 'zh-TW';
+            msg.rate = 1.0; // 稍微放慢一點點，讓數字更清楚
+            window.speechSynthesis.speak(msg);
+        }
+
+        function updateUI() {
+            let sScore, rScore;
+            if (state.servingTeam === 'A') {
+                sScore = state.scoreA;
+                rScore = state.scoreB;
+            } else {
+                sScore = state.scoreB;
+                rScore = state.scoreA;
+            }
+
+            document.getElementById('display-score').innerText = `${sScore}-${rScore}-${state.serverNum}`;
+            document.getElementById('team-label').innerText = `Team ${state.servingTeam} 發球`;
+            
+            if (state.isGameOver) {
+                document.getElementById('win-overlay').style.display = 'flex';
+                document.getElementById('win-message').innerText = `${state.servingTeam} 隊獲勝！`;
+            } else {
+                document.getElementById('win-overlay').style.display = 'none';
+            }
+        }
+
+        function handleAction(type) {
+            if (state.isGameOver) return;
+            requestWakeLock();
+            history.push(JSON.stringify(state));
+
+            if (type === 'point') {
+                if (state.servingTeam === 'A') state.scoreA++;
+                else state.scoreB++;
+
+                const currentScore = (state.servingTeam === 'A') ? state.scoreA : state.scoreB;
+                const otherScore = (state.servingTeam === 'A') ? state.scoreB : state.scoreA;
+                
+                if (currentScore >= 11 && (currentScore - otherScore) >= 2) {
+                    state.isGameOver = true;
+                    updateUI();
+                    speak(`比賽結束，${state.servingTeam} 隊獲勝`);
+                    return;
+                }
+                
+                updateUI();
+                // 調整：只唸數字，例如 "1, 2, 1"
+                speak(`${currentScore}, ${otherScore}, ${state.serverNum}`);
+
+            } else if (type === 'fault') {
+                if (state.serverNum === 1) {
+                    state.serverNum = 2;
+                    updateUI();
+                    const sScore = (state.servingTeam === 'A') ? state.scoreA : state.scoreB;
+                    const rScore = (state.servingTeam === 'A') ? state.scoreB : state.scoreA;
+                    speak(`${sScore}, ${rScore}, 2`);
+                } else {
+                    // Side-out
+                    state.servingTeam = (state.servingTeam === 'A') ? 'B' : 'A';
+                    state.serverNum = 1;
+                    updateUI();
+                    const sScore = (state.servingTeam === 'A') ? state.scoreA : state.scoreB;
+                    const rScore = (state.servingTeam === 'A') ? state.scoreB : state.scoreA;
+                    speak(`${sScore}, ${rScore}, 1`);
+                }
+            }
+        }
+
+        function undo() {
+            if (history.length > 0) {
+                state = JSON.parse(history.pop());
+                updateUI();
+            }
+        }
+
+        function resetGame() {
+            if (history.length === 0 || confirm("確定要重置比賽嗎？")) {
+                state = { scoreA: 0, scoreB: 0, serverNum: 2, servingTeam: 'A', isGameOver: false };
+                history = [];
+                updateUI();
+                speak("0, 0, 2");
+            }
+        }
+
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator && !wakeLock) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    document.getElementById('wake-lock-status').innerText = "螢幕常亮：開啟";
+                } catch (err) {
+                    console.log("WakeLock failed");
+                }
+            }
+        }
+
+        window.onload = updateUI;
+    </script>
+</body>
+</html>
