@@ -87,17 +87,33 @@
             transform: scale(0.98);
         }
 
-        .btn-point {
-            background-color: var(--primary);
+        .btn-team {
+            font-size: 1.5rem;
             color: #000;
-            font-size: 2rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+            line-height: 1.2;
         }
 
-        .btn-fault {
-            background-color: var(--secondary);
-            color: #fff;
-            font-size: 2rem;
+        .btn-team small {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 5px;
+            font-weight: normal;
         }
+
+        #btn-team-a {
+            background-color: var(--primary);
+        }
+
+        #btn-team-b {
+            background-color: #4fc3f7;
+        }
+
+        /* Light Blue for Team B */
 
         .utility-btns {
             display: grid;
@@ -343,8 +359,14 @@
 
         <div class="controls-section">
             <div class="action-btns">
-                <button class="btn-point" onclick="handleAction('point')">得分</button>
-                <button class="btn-fault" onclick="handleAction('fault')">失分</button>
+                <button id="btn-team-a" class="btn-team" onclick="handleRallyWin('A')">
+                    Team A
+                    <small>得分</small>
+                </button>
+                <button id="btn-team-b" class="btn-team" onclick="handleRallyWin('B')">
+                    Team B
+                    <small>得分</small>
+                </button>
             </div>
             <div class="utility-btns">
                 <button class="btn-util" onclick="undo()">復原 (Undo)</button>
@@ -511,11 +533,27 @@
             const serverName = match.servingTeam === 'A' ? match.teamA : match.teamB;
             document.getElementById('team-label').innerText = `${serverName} 發球`;
 
+            // Update button labels
+            document.getElementById('btn-team-a').innerHTML = `${match.teamA}<small>贏得此球</small>`;
+            document.getElementById('btn-team-b').innerHTML = `${match.teamB}<small>贏得此球</small>`;
+
             if (match.isFinished) {
                 document.getElementById('win-overlay').style.display = 'flex';
                 document.getElementById('win-message').innerText = `${serverName} 獲勝！`;
             } else {
                 document.getElementById('win-overlay').style.display = 'none';
+            }
+        }
+
+        function handleRallyWin(winner) {
+            const match = getCurrentMatch();
+            if (!match || match.isFinished) return;
+
+            // Logic: If the winner is the serving team -> Point. Else -> Fault (Side out).
+            if (winner === match.servingTeam) {
+                handleAction('point');
+            } else {
+                handleAction('fault');
             }
         }
 
